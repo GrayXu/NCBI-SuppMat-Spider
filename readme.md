@@ -15,12 +15,16 @@ output: related papers and related Supplementary Materials.
 
 ## TODO
 
-### format supports
+- features
+  - [ ] speed speed speed
+  - [ ] Ouput exact positions of keywords
+  - [ ] retry after code 429
 
-[x] csv, txt, tsv
-[ ] pdf
-[ ] doc, docx
-[ ] xls, xlsx
+- support more formats
+  - [x] csv, txt, tsv  
+  - [ ] pdf  
+  - [ ] doc, docx  
+  - [ ] xls, xlsx  
 
 <!-- ### speed
 
