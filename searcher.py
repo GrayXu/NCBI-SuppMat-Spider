@@ -116,7 +116,6 @@ def search(keywords, api_key, max_workers = 3, ret = 0):
     data = []
     key_encoded = quote(keywords)
     paper_links = search_links(key_encoded)
-    pool = ThreadPool(thread_num)
     data = []
     failed_index = []
     try:
@@ -129,8 +128,6 @@ def search(keywords, api_key, max_workers = 3, ret = 0):
         print(">"*50, e)
         raise
 
-    pool.close()
-    pool.join()
     return results
 
 text_type = ['csv', 'tsv', 'txt', 'html']
@@ -239,7 +236,7 @@ def print_type_stat(result):
                     type_stat[t] += 1
                 else:
                     type_stat[t] = 1
-    print("type_stat: "type_stat)
+    print("type_stat: ",type_stat)
 
 
 def collect_related_files(result):
