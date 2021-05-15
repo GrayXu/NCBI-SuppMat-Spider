@@ -20,6 +20,7 @@ Basic perf test:
 
 - features
   - [x] progress bar
+  - [x] optional keywords for searching in files
   - [ ] speed speed speed
   - [ ] ouput exact positions of keywords
 

@@ -265,14 +265,17 @@ def collect_related_files(result):
     
     return related_file
 
+k_word_list = None
     
 if __name__ == '__main__':
+    # TODO: use args to parse options
     keywords = "propionyl-CoA CANCER"
+#     keywords_file = keywords
+    keywords_file = "propionyl-CoA CANCER"
     api_key = '1cb4976dd163905feedacce5da0f10552309'
-    k_word_list = keywords.split(" ")
+    k_word_list = keywords_file.split(" ")
     thread_num = 10
     result = search(keywords,api_key,max_workers=thread_num, ret=0)
-    # print(result)
 
     print_type_stat(result)  # show types
     
