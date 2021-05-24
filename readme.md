@@ -2,32 +2,45 @@
 
 a web spider to search and download suppmat with specific keywords from NCBI.
 
-input: keywords  
-output: related papers and related Supplementary Materials.
+**input: keywords to search NCBI, and the keywords to search files**  
+**output: related Supplementary Materials.**
 
 Basic perf test:
- - search 1000 related papers in about 15 mins (0.5 GB supplementary materials)
+ - search 1000 related papers in about 14 mins and it will download about 0.5 GB supplementary material files.
 
 ## usage
 
-**config** searcher.py, and **run** it
+**config** searcher.py, and directly **run** it
 
 ## dependency
 
-`pip install requests urlllib bs4 xlrd python-docx tqdm`
+`pip install requests urllib3 bs4 xlrd==1.2.0 python-docx tqdm`
 
-## TODO
+*note: pls make sure xlrd's version*
+
+## TO-DO
 
 - features
   - [x] progress bar
   - [x] optional keywords for searching in files
-  - [ ] speed speed speed
-  - [ ] ouput exact positions of keywords
-
+  - [x] ouput exact positions of keywords
+  - [x] create links to related suppmats
+  - [ ] optional case sensitivity
+  - [ ] more account keys and proxy IPs to speed up
+  
 
 - support more formats
   - [x] csv, txt, tsv  
   - [x] xls, xlsx  
+  - [ ] zip  
   - [ ] pdf  
   - [ ] doc, docx  
   
+
+- some trival bugs
+  - [ ] download nad check progress bar depends on the number of files instead of the size of files (hard to fix)
+  - [ ] can't handle csv or tsv files with wrong suffix (e.g. a \*.xls file but in csv formats, which is a bug from NCBI DB)   
+  
+## some warning notes
+
+...

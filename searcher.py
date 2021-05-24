@@ -1,4 +1,3 @@
-# from multiprocessing.dummy import Pool as ThreadPool
 from tqdm.contrib.concurrent import thread_map
 from tqdm.contrib.concurrent import process_map
 import os
@@ -11,7 +10,7 @@ from urllib.parse import quote
 from bs4 import BeautifulSoup
 from xml.etree.ElementTree import parse
 import xml.etree.ElementTree as ET
-
+import json  # to format outputs
 
 # multi-thread
 def add_paperdata(link):
@@ -36,8 +35,10 @@ def get_papertitle(root_xml):
                         for i in range(len(j)):
                             tmp += '' if j[i].text is None else j[i].text
                             tmp += '' if j[i].tail is None else j[i].tail
-
-                        return tmp
+                        
+                        title = ' '.join(tmp.split())  # mv multi-space to one space
+                        return title[:240] if len(title) > 240 else title
+    return None
 
 # concurrently get paper data from pid
 def get_data(pid):
@@ -51,7 +52,12 @@ def get_data(pid):
         r = requests.get(data_link)
 
     root_paper = ET.fromstring(r.text)
-    data['title'] = get_papertitle(root_paper).replace("\n","")  # del \n
+    paper_result = get_papertitle(root_paper)
+    if paper_result is None:
+        data['title'] = str(pid) # del \n
+        print("title failed:",pid)
+    else:
+        data['title'] = paper_result.replace("\n","")  # del \n
     data['id'] = str(pid)
 #     data['pdf'] =  "https://www.ncbi.nlm.nih.gov/pmc/articles/PMC"+str(pid)+"/pdf/"+ get_pdf_fname(root_paper) # e.g. https://www.ncbi.nlm.nih.gov/pmc/articles/PMC6851703/pdf/MMI-112-1284.pdf
     data['pdf'] = "https://www.ncbi.nlm.nih.gov/pmc/articles/PMC" + \
@@ -130,14 +136,14 @@ def search(keywords, api_key, max_workers = 3, ret = 0):
 
     return results
 
-text_type = ['csv', 'tsv', 'txt', 'html']
+# hard code here
+text_type = ['csv', 'tsv', 'txt', 'html', 'xml']
 excel_type = ['xls','xlsx']
-useful_names = []
 
 # for name, link in download:
-def down4check(name_link):
+def down4check(name_link_kwordlist):
     useful_names = []
-    name, link = name_link
+    name, link, k_word_list = name_link_kwordlist
 #     print("check",name)
     suffix = name.split(".")[-1].lower()
     if not os.path.exists(name):  # download and check file
@@ -146,43 +152,56 @@ def down4check(name_link):
             time.sleep(0.5)
             r = requests.get(link)
         
-        # pure text!
+        # plain text
         if suffix in text_type:
-            flag = True
-            for key in k_word_list:
-                if key not in r.text:
-                    flag = False
-            with open(name, 'w') as f: # save it as tmp file
-                f.write(r.text)
-            if flag:
-#                 print(name)
-                useful_names.append(name, link)
+            with open(name, 'wb') as f:
+                f.write(r.content)
+            return plain_text_handler(name, k_word_list)
         
         # ms excel
         if suffix in excel_type:
             with open(name, 'wb') as f:
                 f.write(r.content)
-            excel_handler(name, link)
+            return excel_handler(name, link, k_word_list)
         
     else: # check local file
-        # pure text
+        # plain text
         if suffix in text_type:
-            with open(name) as f:
-                data = f.readlines()
-            flag = True
-
-            for key in k_word_list:
-                if key not in data:
-                    flag = False
-            if flag:  # contain!
-#                 print(name)
-                useful_names.append(name)
+            return plain_text_handler(name, k_word_list)
         
+        # ms excel
         if suffix in excel_type:
-            excel_handler(name, link)
-            
+            return excel_handler(name, link, k_word_list)
+
+# txt..
+def plain_text_handler(name, k_word_list):
+    handle_result = {}
+    handle_result["name"] = name
+    for k in k_word_list:
+        handle_result[k] = []
+    with open(name) as f:
+        data = f.readlines()
+
+    # do n^2 search
+    for k in k_word_list:
+        mini_flag = False
+        for line_index in range(len(data)):
+            if k in data[line_index]:
+                handle_result[k].append(line_index+1)
+                mini_flag = True
+        if not mini_flag:
+            return None
+    
+    return handle_result
+
+    
 # must be xls or xlsx
-def excel_handler(name, link):
+def excel_handler(name, link, k_word_list):
+    handle_result = {}
+    handle_result["name"] = name
+    for k in k_word_list:
+#         handle_result[k] = set([])
+        handle_result[k] = []
     workbook = None
     broken_flag = False
     try:
@@ -216,15 +235,20 @@ def excel_handler(name, link):
 
     for sname in sheet_names:
         worksheet = workbook.sheet_by_name(sname)
+        # n^3 search
         for i in range(worksheet.nrows):
             for item in worksheet.row_values(i):
                 for k in range(len(k_word_list)):
                     key = k_word_list[k]
-                    if key in str(item):
-                        flags[k] = True
-    if False not in flags:
-        return name
-
+                    item_split = str(item).split(",")
+                    for j in range(len(item_split)):
+                        if key in str(item_split[j]):
+                            flags[k] = True  # mark the flags
+                            if (sname,i+1,j+1) not in handle_result[key]:
+                                handle_result[key].append((sname,i+1,j+1))
+    
+    return handle_result if (False not in flags) else None
+    
 # file type stats
 def print_type_stat(result):
     type_stat = {}
@@ -242,7 +266,7 @@ def print_type_stat(result):
 def collect_related_files(result):
     related_file = []
     # match_type = ['xls', 'xlsx', 'csv', 'tsv', 'txt', 'html', 'doc', 'docx', 'pdf']   # TODO: future work here
-    match_type = ['csv', 'tsv', 'txt', 'html', 'xls', 'xlsx']  # pure text..
+    match_type = ['csv', 'tsv', 'txt', 'xml', 'html', 'xls', 'xlsx']  # pure text..
 
     for item,_ in result:
         if item is None:
@@ -261,18 +285,38 @@ def collect_related_files(result):
             name = name.lower()
             suffix = name.split(".")[-1]
             if suffix in match_type:
-                related_file.append((os.path.join(directory, name), link))
+                related_file.append([os.path.join(directory, name), link])
     
     return related_file
 
-k_word_list = None
+# gen human-readable results
+# keywords+" "+keywords_file
+def process_result(results, path):
+    if not os.path.exists(path):
+        # create
+        os.makedirs(path)
+    # write summary info
+    with open(os.path.join(path,"result.json"), "w") as f:
+        f.write(str(json.dumps(useful_results, sort_keys=True, indent=2, separators=(',', ': '))))
+    # create soft link
+    for item in results:
+        src = item['name']
+        prefix, fname = os.path.split(item['name'])
+        dst = os.path.join(path, prefix[5:10]+"-"+fname)  # absolute path
+#         print(src, os.path.abspath(dst))
+        os.symlink(os.path.abspath(src), os.path.abspath(dst))
+    
     
 if __name__ == '__main__':
     # TODO: use args to parse options
-    keywords = "propionyl-CoA CANCER"
-#     keywords_file = keywords
-    keywords_file = "propionyl-CoA CANCER"
+    keywords = "CoA HCC"
+#     keywords_file = keywords  # default settings
+
+    keywords_file = "acetyl-CoA"
     api_key = '1cb4976dd163905feedacce5da0f10552309'
+    keywords = "propionyl-CoA CANCER Mycobacterium methylcitrate"
+    keywords_file = "Rv1128c"
+    
     k_word_list = keywords_file.split(" ")
     thread_num = 10
     result = search(keywords,api_key,max_workers=thread_num, ret=0)
@@ -280,19 +324,15 @@ if __name__ == '__main__':
     print_type_stat(result)  # show types
     
     related_file = collect_related_files(result)
-
+    
+    print("Estimated time:", len(related_file)*(13.11/448),"mins")  # some magic number...
+    
     try:
-        results = thread_map(down4check, related_file, max_workers=10)
+        results = thread_map(down4check, [x+[k_word_list] for x in related_file], max_workers=9)
     except Exception as e:
         print(">"*50, e)
         raise
-
-    with open(keywords+".result", "w") as f:
-        if len(useful_names) != 0:
-            f.writelines("\n".join(useful_names))
-        else:
-            f.writelines("None!")
-
-    print(useful_names)
+    useful_results = list(filter(lambda x: x is not None, results))
+    process_result(useful_results, keywords+"+"+keywords_file)
 
     print("results show in the root path")
