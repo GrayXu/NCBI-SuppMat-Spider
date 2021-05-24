@@ -23,8 +23,8 @@ Basic perf test:
 - features
   - [x] progress bar
   - [x] optional keywords for searching in files
-  - [x] ouput exact positions of keywords
-  - [x] create links to related suppmats
+  - [x] ouput coordinates of keywords in xls&xlsx
+  - [x] create soft links to related suppmats
   - [ ] optional case sensitivity
   - [ ] more account keys and proxy IPs to speed up
   
@@ -38,7 +38,7 @@ Basic perf test:
   
 
 - some trival bugs
-  - [ ] download nad check progress bar depends on the number of files instead of the size of files (hard to fix)
+  - [ ] download and check progress bar depends on the number of files instead of the size of files (hard to fix)
   - [ ] can't handle csv or tsv files with wrong suffix (e.g. a \*.xls file but in csv formats, which is a bug from NCBI DB)   
   
 ## some warning notes
