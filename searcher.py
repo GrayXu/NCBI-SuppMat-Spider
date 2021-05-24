@@ -271,14 +271,15 @@ def collect_related_files(result):
     for item,_ in result:
         if item is None:
             continue
-        subpath = item['title'] if "/" not in item['title'] else item['title'].replace("/","-")
+        item['title'] = item['title'].replace("/","-").replace(":","").replace("*","")
+        subpath = item['title']
         directory = os.path.join('data', subpath)
         if not os.path.exists(directory):
             # create
             os.makedirs(directory)
 
         if not os.path.exists(os.path.join(directory, "info.txt")):
-            with open(os.path.join(directory, "info.txt"), "w") as f:
+            with open(os.path.join(directory, "info.txt"), "w", encoding="utf-8") as f:
                 f.write(str(item))
 
         for name, link in item['suppmats'].items():
