@@ -30,7 +30,7 @@ Basic perf test:
   
 
 - support more formats
-  - [x] csv, txt, tsv  
+  - [x] csv, txt, tsv, html, xml  
   - [x] xls, xlsx  
   - [ ] zip  
   - [ ] pdf  
