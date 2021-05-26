@@ -10,26 +10,33 @@ from urllib.parse import quote
 from bs4 import BeautifulSoup
 from xml.etree.ElementTree import parse
 import xml.etree.ElementTree as ET
-import json  # to format outputs
+import json  # to format results outputs
+
+import logging
+logging.basicConfig(
+    level=logging.WARNING,
+    format="[%(asctime)s] %(name)s:%(levelname)s: %(message)s"
+)
 
 # multi-thread
-def add_paperdata(link):
-    tmp_data = get_data(link.split("PMC")[-1])  # parse xml from API
+def add_paperdata(link_api_key):
+    link, api_key = link_api_key
+    tmp_data = get_data(link.split("PMC")[-1], api_key)  # parse xml from API
     if tmp_data is not None:
-#         print(link)
         return (tmp_data,None)
     else:
         return (None, link)
 
 
-# get title
+# get title (bad formatting..)
 def get_papertitle(root_xml):
     for item in root_xml.iter():
         if item.tag == 'title-group':
             for j in item.iter():
                 if j.tag == 'article-title':
                     if len(j) == 0:
-                        return j.text
+                        title = ' '.join(j.text.split())  # mv multi-space to one space
+                        return title[:200] if len(title) > 200 else title
                     else:
                         tmp = '' if j.text is None else j.text
                         for i in range(len(j)):
@@ -37,11 +44,11 @@ def get_papertitle(root_xml):
                             tmp += '' if j[i].tail is None else j[i].tail
                         
                         title = ' '.join(tmp.split())  # mv multi-space to one space
-                        return title[:240] if len(title) > 240 else title
+                        return title[:200] if len(title) > 200 else title
     return None
 
 # concurrently get paper data from pid
-def get_data(pid):
+def get_data(pid, api_key):
     data = {}
     data_link = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pmc&id="+str(pid)+"&api_key="+api_key
     r = requests.get(data_link)
@@ -49,13 +56,15 @@ def get_data(pid):
     # retry to get paper data
     while r.status_code != 200:
         time.sleep(1)
+        logging.debug("status code failed: "+data_link)
         r = requests.get(data_link)
+        
 
     root_paper = ET.fromstring(r.text)
     paper_result = get_papertitle(root_paper)
     if paper_result is None:
         data['title'] = str(pid) # del \n
-        print("title failed:",pid)
+        logging.error("title failed: "+pid)
     else:
         data['title'] = paper_result.replace("\n","")  # del \n
     data['id'] = str(pid)
@@ -83,15 +92,15 @@ def grep_all_paper(root, count):
     return -1
 
 # search for related paper links from given keywords
-def search_links(key_encoded):
+def search_links(key_encoded, ret):
     prefix_eutils = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pmc"
-    count = 1000000  # a big number
+    count = 1000000 if ret == 0 else ret  # a big number
     search_link = "{prefix}&RetMax={ret}&term={keywords}".format(prefix=prefix_eutils,ret=str(count),keywords=key_encoded)
-    print(search_link)
-    
+    logging.warning(search_link)
     r = requests.get(search_link)
     while r.status_code != 200:
         time.sleep(1)
+        logging.debug("status code failed: "+data_link)
         r = requests.get(data_link)
     
     # make sure grep all data!
@@ -107,31 +116,29 @@ def search_links(key_encoded):
         if item.tag == 'Id':
             pmcids.append(item.text)
     
-    print("related papers:",len(pmcids))
+    
+    logging.warning("related papers: "+str(len(pmcids)))
     paper_links = []
     for pid in pmcids:
         paper_links.append("https://www.ncbi.nlm.nih.gov/pmc/articles/PMC"+pid)
     return paper_links
 
-api_key = ''
-
 # fetch paper details
 def search(keywords, api_key, max_workers = 3, ret = 0):
-    print("searching from NCBI PMC.......")
-    api_key = api_key
+    logging.warning("searching from NCBI PMC.......")
     data = []
     key_encoded = quote(keywords)
-    paper_links = search_links(key_encoded)
+    paper_links = search_links(key_encoded, ret)
     data = []
     failed_index = []
     try:
         if ret == 0:
-            results = thread_map(add_paperdata, paper_links, max_workers=max_workers)
+            results = thread_map(add_paperdata, [(x, api_key) for x in paper_links], max_workers=max_workers)
         else:
-            results = thread_map(add_paperdata, paper_links[:ret], max_workers=max_workers)
+            results = thread_map(add_paperdata, [(x, api_key) for x in paper_links[:ret]], max_workers=max_workers)
 
     except Exception as e:
-        print(">"*50, e)
+        logging.error(str(e))
         raise
 
     return results
@@ -144,7 +151,6 @@ excel_type = ['xls','xlsx']
 def down4check(name_link_kwordlist):
     useful_names = []
     name, link, k_word_list = name_link_kwordlist
-#     print("check",name)
     suffix = name.split(".")[-1].lower()
     if not os.path.exists(name):  # download and check file
         r = requests.get(link)
@@ -196,7 +202,8 @@ def plain_text_handler(name, k_word_list):
 
     
 # must be xls or xlsx
-def excel_handler(name, link, k_word_list):
+# paarm: name, the path; link, the download link, k_word_list, keywords list 
+def excel_handler(name, link, k_word_list, keep_cache):
     handle_result = {}
     handle_result["name"] = name
     for k in k_word_list:
@@ -226,7 +233,7 @@ def excel_handler(name, link, k_word_list):
             break
     
     if broken_flag:
-        print(name,"is broken!")
+        logging.error(name+" is broken!")
         return None
         
     sheet_names = workbook.sheet_names()
@@ -260,8 +267,7 @@ def print_type_stat(result):
                     type_stat[t] += 1
                 else:
                     type_stat[t] = 1
-    print("type_stat: ",type_stat)
-
+    logging.warning("type_stat: "+str(type_stat))
 
 def collect_related_files(result):
     related_file = []
@@ -304,36 +310,58 @@ def process_result(results, path):
         src = item['name']
         prefix, fname = os.path.split(item['name'])
         dst = os.path.join(path, prefix[5:10]+"-"+fname)  # absolute path
-#         print(src, os.path.abspath(dst))
         os.symlink(os.path.abspath(src), os.path.abspath(dst))
     
+
+class NCBI_searcher(object):
+        
+    def __init__(self, api_key, len_limit=0):
+        self.api_key = api_key
+        self.len_limit = len_limit
+       
+    def search_from_web(self, keywords_web, thread_num=10):
+        result = search(keywords_web,self.api_key,max_workers=thread_num, ret=self.len_limit)
+        print_type_stat(result)
+        return result
+    
+    # results save in root path
+    def search_from_file(self, result, keywords_file):
+        related_file = collect_related_files(result)
+        logging.warning("Estimated time: " + str(len(related_file)*(13.11/448)) +" mins") # some magic number...
+        k_word_list = keywords_file.split(" ")
+        try:
+            results = thread_map(down4check, [x+[k_word_list] for x in related_file], max_workers=9)
+        except Exception as e:
+            logging.error(str(e))
+            raise
+        useful_results = list(filter(lambda x: x is not None, results))
+        process_result(useful_results, keywords+"+"+keywords_file)
+
+        logging.debug("results show in the root path")
+        
     
 if __name__ == '__main__':
     # TODO: use args to parse options
-    keywords = "CoA HCC"
-#     keywords_file = keywords  # default settings
 
-    keywords_file = "acetyl-CoA"
     api_key = '1cb4976dd163905feedacce5da0f10552309'
-    keywords = "propionyl-CoA CANCER Mycobacterium methylcitrate"
-    keywords_file = "Rv1128c"
+    keywords = "HCC metabolomics"
+    keywords_file = "acetly-CoA"
     
-    k_word_list = keywords_file.split(" ")
-    thread_num = 10
-    result = search(keywords,api_key,max_workers=thread_num, ret=0)
+#     k_word_list = keywords_file.split(" ")
+#     thread_num = 10
+#     result = search(keywords,api_key,max_workers=thread_num, ret=0)
 
-    print_type_stat(result)  # show types
+#     print_type_stat(result)  # show types
     
-    related_file = collect_related_files(result)
+#     related_file = collect_related_files(result)
     
-    print("Estimated time:", len(related_file)*(13.11/448),"mins")  # some magic number...
-    
-    try:
-        results = thread_map(down4check, [x+[k_word_list] for x in related_file], max_workers=9)
-    except Exception as e:
-        print(">"*50, e)
-        raise
-    useful_results = list(filter(lambda x: x is not None, results))
-    process_result(useful_results, keywords+"+"+keywords_file)
+#     logging.debug("Estimated time:", len(related_file)*(13.11/448),"mins") # some magic number...
+#     try:
+#         results = thread_map(down4check, [x+[k_word_list] for x in related_file], max_workers=9)
+#     except Exception as e:
+#         logging.error(str(e))
+#         raise
+#     useful_results = list(filter(lambda x: x is not None, results))
+#     process_result(useful_results, keywords+"+"+keywords_file)
 
-    print("results show in the root path")
+#     logging.debug("results show in the root path")
