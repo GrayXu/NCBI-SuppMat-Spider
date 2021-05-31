@@ -26,7 +26,7 @@ Basic perf test:
   - [x] ouput coordinates of keywords in xls&xlsx
   - [x] create soft links to related suppmats
   - [ ] optional case sensitivity
-  - [ ] more account keys and proxy IPs to speed up
+  - [ ] more account keys and proxy IPs to speed up (after scaling seacher to millions level, waiting time will be a disaster..)
   
 
 - support more formats
