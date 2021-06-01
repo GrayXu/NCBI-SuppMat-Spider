@@ -1,22 +1,23 @@
 # NCBI-SuppMat-Spider
 
-a web spider to search and download suppmat with specific keywords from NCBI.
+![lincense](https://img.shields.io/badge/license-MIT-green)
 
-**input: keywords to search NCBI, and the keywords to search files**  
-**output: related Supplementary Materials.**
+A web spider to search and download supplementary materials (*SuppMat*) with specific keywords from NCBI PubMed Central® (PMC) .
 
-Basic perf test:
- - search 1000 related papers in about 14 mins and it will download about 0.5 GB supplementary material files.
+***input*: keywords of titles and abstracts to search papers, and the keywords to search supplementary materials**  
+***output*: all related supplementary materials.**
 
-## usage
+## Usage
 
-**config** searcher.py, and directly **run** it
+```
+git clone https://github.com/GrayXu/NCBI-SuppMat-Spider.git
+pip install -r requirements.txt
+python3 main.py
+```
+1. Use pip to install dependencies.  
+2. **config** main.py, and directly **run** it  
 
-## dependency
-
-`pip install requests urllib3 bs4 xlrd==1.2.0 python-docx tqdm`
-
-*note: pls make sure xlrd's version*
+*note: pls make sure xlrd's version, otherwise it won't handle xlsx files*
 
 ## TO-DO
 
@@ -25,8 +26,9 @@ Basic perf test:
   - [x] optional keywords for searching in files
   - [x] ouput coordinates of keywords in xls&xlsx
   - [x] create soft links to related suppmats
+  - [x] optionally keep un-related files as cache
+  - [ ] more account keys and proxy IPs to speed up (after scaling seacher to millions level, waiting time will be a disaster, so it's urgent)
   - [ ] optional case sensitivity
-  - [ ] more account keys and proxy IPs to speed up (after scaling seacher to millions level, waiting time will be a disaster..)
   
 
 - support more formats
@@ -38,9 +40,13 @@ Basic perf test:
   
 
 - some trival bugs
-  - [ ] download and check progress bar depends on the number of files instead of the size of files (hard to fix)
-  - [ ] can't handle csv or tsv files with wrong suffix (e.g. a \*.xls file but in csv formats, which is a bug from NCBI DB)   
+  - [x] can't handle csv or tsv files with wrong suffix (e.g. a \*.xls file but in csv formats, which is a bug from NCBI DB)   
+  - [ ] download and check progress bar depends on the number of files instead of the size of files, and the estimated time from `tqdm` is not stable (*hard to fix*)
+  - [ ] downloading and parsing need times, so actually the size of thread pool be larger than limits
   
-## some warning notes
+## some notes
+
+1. if you need to use proxy, edit `proxies` variable in the head of searcher.py
+2. one IP is allowed to send 3 requests to NCBI PMC in 1 seconds If you register an accout and use its api_key, the number can be increased to 10.
 
 ...
