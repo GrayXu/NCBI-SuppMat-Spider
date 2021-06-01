@@ -1,0 +1,6 @@
+requests
+urllib3
+bs4
+xlrd==1.2.0
+python-docx
+tqdm

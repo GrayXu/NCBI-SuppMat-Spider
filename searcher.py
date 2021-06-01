@@ -260,7 +260,7 @@ def excel_handler(result_request, fname, k_word_list, handle_result, exist_flag)
     except:
         logging.error(fname+" is broken!")
         # try to parse broken excel files as plain text
-        return plain_text_handler(result_request, fname, k_word_list, handle_result)
+        return plain_text_handler(result_request, fname, k_word_list, handle_result, exist_flag)
 
     sheet_names = workbook.sheet_names()
     for key in k_word_list:
@@ -347,6 +347,7 @@ class NCBI_searcher(object):
         
         # join results!
         results = []
+    
         for r in results_tmp:
             results += r
         
