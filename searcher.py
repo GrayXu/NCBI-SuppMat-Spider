@@ -1,4 +1,5 @@
 import re
+from requests.models import Response
 from tqdm.contrib.concurrent import thread_map
 from tqdm.contrib.concurrent import process_map
 import os
@@ -16,6 +17,26 @@ logging.basicConfig(
 )
 
 proxies = {"http": "http://127.0.0.1:7890", "https": "http://127.0.0.1:7890", }
+
+MAX_TRY = 5
+
+
+
+def request_get(url, proxies=None):
+    # re-package requests to prevent memory leak
+    r = None
+    session = requests.session()
+    try:
+        if proxies is None:
+            r = session.get(url)
+        else:
+            r = session.get(url, proxies=proxies)
+    except:
+        r = None
+    finally:
+        session.close()
+        r.close()
+    return r
 
 
 def get_papertitle(root_xml):
@@ -49,19 +70,34 @@ def get_data(pid, api_key):
     data = {}
     data_link = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pmc&id=" + \
         str(pid)+"&api_key="+api_key
-    r = requests.get(data_link, proxies=proxies)
+        
+    r = None
+    try:
+        r = request_get(data_link, proxies=proxies)
+    except:
+        pass
 
     # retry to get paper data
-    while r.status_code != 200:
-        time.sleep(0.818)
-        logging.info("status code failed: "+data_link)
-        r = requests.get(data_link, proxies=proxies)
+    if r is not None and r.status_code != 200:
+        for _ in range(MAX_TRY):
+            time.sleep(0.818)
+            logging.info("status code failed: "+data_link)
+            try:
+                r = request_get(data_link, proxies=proxies)
+            except:
+                pass
+            if r is not None and r.status_code == 200:
+                break
+
+    if r is not None and r.status_code != 200:
+        logging.error("can't get data from: " + pid)
+        return None
 
     root_paper = ET.fromstring(r.text)
     paper_result = get_papertitle(root_paper)
     if paper_result is None:
         data['title'] = str(pid)  # del \n
-        logging.error("title failed: "+pid)
+        logging.info("title failed: "+pid)
     else:
         data['title'] = paper_result.replace("\n", "").replace(
             "/", "-").replace(":", "").replace("*", "")  # del \n
@@ -96,11 +132,18 @@ def search_links(key_encoded, ret):
     search_link = "{prefix}&RetMax={ret}&term={keywords}".format(
         prefix=prefix_eutils, ret=str(count), keywords=key_encoded)
     logging.info(search_link)
-    r = requests.get(search_link, proxies=proxies)
-    while r.status_code != 200:
-        time.sleep(1)
-        logging.info("status code failed: "+search_link)
-        r = requests.get(search_link, proxies=proxies)
+    r = request_get(search_link, proxies=proxies)
+
+    if r.status_code != 200:
+        for _ in range(MAX_TRY):
+            time.sleep(0.818)
+            logging.info("status code failed: "+search_link)
+            r = request_get(search_link, proxies=proxies)
+            if r.status_code == 200:
+                break
+    if r.status_code != 200:
+        logging.error("can't search links from: " + key_encoded)
+        return None
 
     # make sure grep all data!
     root = ET.fromstring(r.text)
@@ -122,9 +165,11 @@ def search_links(key_encoded, ret):
         paper_links.append("https://www.ncbi.nlm.nih.gov/pmc/articles/PMC"+pid)
     return paper_links
 
+
 # hard code here
 text_type = ['csv', 'tsv', 'txt', 'html', 'xml']
 excel_type = ['xls', 'xlsx']
+
 
 def search_aio_sub(link_kword_api_keep):
     '''
@@ -138,7 +183,8 @@ def search_aio_sub(link_kword_api_keep):
         # parse xml from API
         tmp_data = get_data(link.split("PMC")[-1], api_key)
     except:
-        logging.error("get_data error: "+link)
+        # logging.error("get_data error: "+link)  # unkonwn memory leak here
+        logging.exception("get_data error: "+link)
         return None
 
     if tmp_data is not None:
@@ -152,7 +198,7 @@ def search_aio_sub(link_kword_api_keep):
             suffix = name.split(".")[-1].lower()
             if suffix not in text_type + excel_type:  # not match
                 continue
-            
+
             # init handle_result, this result will be written to disk as a json file
             handle_result = {}
             handle_result["name"] = fname
@@ -163,18 +209,29 @@ def search_aio_sub(link_kword_api_keep):
             if not os.path.exists(name):
                 exist_flag = False
                 try:
-                    r = requests.get(link, proxies=proxies)
+                    r = request_get(link, proxies=proxies)
+
                     # it's hard to get a trade-off concurrency here
                     # speed will be affected here by a static number of threads
-                    while r.status_code != 200:
-                        time.sleep(0.5)
-                        r = requests.get(link, proxies=proxies)
+                    if r.status_code != 200:
+                        for _ in range(MAX_TRY):
+                            time.sleep(0.818)
+                            logging.info("status code failed: "+link)
+                            r = request_get(link, proxies=proxies)
+                            if r.status_code == 200:
+                                break
+
+                    if r.status_code != 200:
+                        logging.error("download files error: "+fname)
+                        return None
+
                 except:
                     logging.error("download files error: "+fname)
                     return None
 
             if suffix in text_type:  # match!
-                re = plain_text_handler(r, fname, k_word_list, handle_result, exist_flag)
+                re = plain_text_handler(
+                    r, fname, k_word_list, handle_result, exist_flag)
                 if re is None and keep_cache:  # keep it as cache
                     with open(fname, 'wb') as f:
                         f.write(r.content)
@@ -182,14 +239,17 @@ def search_aio_sub(link_kword_api_keep):
                     res.append(re)
 
             elif suffix in excel_type:
-                re = excel_handler(r, fname, k_word_list, handle_result, exist_flag)
+                re = excel_handler(r, fname, k_word_list,
+                                   handle_result, exist_flag)
                 if re is None and keep_cache:  # keep it as cache
                     with open(fname, 'wb') as f:
                         f.write(r.content)
                 if re is not None:
                     res.append(re)
+        return res if len(res) != 0 else None
+    else:
+        return None
 
-    return res if len(res) != 0 else None
 
 def search_aio(keywords, keywords_file, api_key, max_workers=3, ret=0, keep_cache=False):
     # new entrance and save memory
@@ -221,7 +281,8 @@ def plain_text_handler(result_request, fname, k_word_list, handle_result, exist_
     else:
         try:
             try:
-                data = str(result_request.content, encoding='utf-8').split("\n")
+                data = str(result_request.content,
+                           encoding='utf-8').split("\n")
             except:
                 data = str(result_request.content, encoding='gbk').split("\n")
         except:
@@ -288,7 +349,6 @@ def excel_handler(result_request, fname, k_word_list, handle_result, exist_flag)
             f.write(result_request.content)
 
     return handle_result
-    
 
 
 def print_type_stat(result):
@@ -343,13 +403,13 @@ class NCBI_searcher(object):
         self.keywords_web = keywords_web
         self.keywords_file = keywords_file
         results_tmp = search_aio(keywords_web, keywords_file, self.api_key,
-                             max_workers=thread_num, ret=self.len_limit, keep_cache=keep_cache)
-        
+                                 max_workers=thread_num, ret=self.len_limit, keep_cache=keep_cache)
+
         # join results!
         results = []
-    
+
         for r in results_tmp:
             results += r
-        
+
         process_result(results, "results/" +
                        keywords_web+"+"+keywords_file)
