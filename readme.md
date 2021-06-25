@@ -27,8 +27,8 @@ python3 main.py
   - [x] ouput coordinates of keywords in xls&xlsx
   - [x] create soft links to related suppmats
   - [x] optionally keep un-related files as cache
+  - [x] optional case sensitivity
   - [ ] more account keys and proxy IPs to speed up (after scaling seacher to millions level, waiting time will be a disaster, so it's urgent)
-  - [ ] optional case sensitivity
   
 
 - support more formats

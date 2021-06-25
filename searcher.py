@@ -16,10 +16,10 @@ logging.basicConfig(
     format="[%(asctime)s] %(name)s:%(levelname)s: %(message)s"
 )
 
-proxies = {"http": "http://127.0.0.1:7890", "https": "http://127.0.0.1:7890", }
+# proxies = {"http": "http://127.0.0.1:7890", "https": "http://127.0.0.1:7890", }
+proxies = None
 
 MAX_TRY = 5
-
 
 
 def request_get(url, proxies=None):
@@ -70,7 +70,7 @@ def get_data(pid, api_key):
     data = {}
     data_link = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pmc&id=" + \
         str(pid)+"&api_key="+api_key
-        
+
     r = None
     try:
         r = request_get(data_link, proxies=proxies)
@@ -171,13 +171,13 @@ text_type = ['csv', 'tsv', 'txt', 'html', 'xml']
 excel_type = ['xls', 'xlsx']
 
 
-def search_aio_sub(link_kword_api_keep):
+def search_aio_sub(link_kword_api_keep_case):
     '''
     input: (link, kword_file, api_key, keep_cache)
     return: none
     '''
 
-    link, keywords_file, api_key, keep_cache = link_kword_api_keep
+    link, keywords_file, api_key, keep_cache, case_sensitive = link_kword_api_keep_case
     k_word_list = keywords_file.split(" ")
     try:
         # parse xml from API
@@ -231,7 +231,7 @@ def search_aio_sub(link_kword_api_keep):
 
             if suffix in text_type:  # match!
                 re = plain_text_handler(
-                    r, fname, k_word_list, handle_result, exist_flag)
+                    r, fname, k_word_list, handle_result, exist_flag, case_sensitive)
                 if re is None and keep_cache:  # keep it as cache
                     with open(fname, 'wb') as f:
                         f.write(r.content)
@@ -240,18 +240,19 @@ def search_aio_sub(link_kword_api_keep):
 
             elif suffix in excel_type:
                 re = excel_handler(r, fname, k_word_list,
-                                   handle_result, exist_flag)
+                                   handle_result, exist_flag, case_sensitive)
                 if re is None and keep_cache:  # keep it as cache
                     with open(fname, 'wb') as f:
                         f.write(r.content)
                 if re is not None:
                     res.append(re)
+
         return res if len(res) != 0 else None
     else:
         return None
 
 
-def search_aio(keywords, keywords_file, api_key, max_workers=3, ret=0, keep_cache=False):
+def search_aio(keywords, keywords_file, api_key, max_workers=3, ret=0, keep_cache=False, case_sensitive=False):
     # new entrance and save memory
     # fetch paper details
     logging.info("searching from NCBI PMC.......")
@@ -259,10 +260,10 @@ def search_aio(keywords, keywords_file, api_key, max_workers=3, ret=0, keep_cach
     paper_links = search_links(key_encoded, ret)
     try:
         if ret == 0:
-            result = thread_map(search_aio_sub, [(x, keywords_file, api_key, keep_cache)
+            result = thread_map(search_aio_sub, [(x, keywords_file, api_key, keep_cache, case_sensitive)
                                                  for x in paper_links], max_workers=max_workers)
         else:
-            result = thread_map(search_aio_sub, [(x, keywords_file, api_key, keep_cache)
+            result = thread_map(search_aio_sub, [(x, keywords_file, api_key, keep_cache, case_sensitive)
                                                  for x in paper_links[:ret]], max_workers=max_workers)
 
         return list(filter(lambda x: x is not None, result))
@@ -271,7 +272,7 @@ def search_aio(keywords, keywords_file, api_key, max_workers=3, ret=0, keep_cach
         logging.exception("search exception (big one)")
 
 
-def plain_text_handler(result_request, fname, k_word_list, handle_result, exist_flag):
+def plain_text_handler(result_request, fname, k_word_list, handle_result, exist_flag, case_sensitive):
     logging.debug(fname)
     data = None
 
@@ -292,7 +293,8 @@ def plain_text_handler(result_request, fname, k_word_list, handle_result, exist_
     for k in k_word_list:
         find_this_key = False
         for line_index in range(len(data)):
-            if k in data[line_index]:
+
+            if (not case_sensitive and k.lower() in data[line_index].lower()) or (case_sensitive and k in data[line_index]):
                 find_this_key = True
                 handle_result[k].append(line_index+1)
 
@@ -310,7 +312,7 @@ def plain_text_handler(result_request, fname, k_word_list, handle_result, exist_
     return handle_result
 
 
-def excel_handler(result_request, fname, k_word_list, handle_result, exist_flag):
+def excel_handler(result_request, fname, k_word_list, handle_result, exist_flag, case_sensitive):
     logging.debug(fname)
 
     try:
@@ -332,7 +334,7 @@ def excel_handler(result_request, fname, k_word_list, handle_result, exist_flag)
                 for item in worksheet.row_values(i):
                     item_split = str(item).split(",")
                     for j in range(len(item_split)):
-                        if key in item_split[j]:
+                        if (not case_sensitive and key.lower() in item_split[j].lower()) or (case_sensitive and key in item_split[j]):
                             find_this_key = True
                             if (sname, i+1, j+1) not in handle_result[key]:
                                 handle_result[key].append(
@@ -399,11 +401,18 @@ class NCBI_searcher(object):
         self.len_limit = len_limit
 
     # search all in one, this method saves memory
-    def search_from_all(self, keywords_web, keywords_file, thread_num=9, keep_cache=False):
+    def search_from_all(self, keywords_web, keywords_file, thread_num=9, keep_cache=False, case_sensitive=False):
+        '''
+        keywords_web: keywords for searching related papers
+        keywords_file: keywords for searching related suppmats
+        thread_num: the number of concurent threads
+        keep_cache: Decide whether to delete irrelevant suppmats, which can improve the efficiency of the next search
+        case_sensitive: search suppmats with or without case sensitivity.
+        '''
         self.keywords_web = keywords_web
         self.keywords_file = keywords_file
         results_tmp = search_aio(keywords_web, keywords_file, self.api_key,
-                                 max_workers=thread_num, ret=self.len_limit, keep_cache=keep_cache)
+                                 max_workers=thread_num, ret=self.len_limit, keep_cache=keep_cache, case_sensitive=case_sensitive)
 
         # join results!
         results = []
